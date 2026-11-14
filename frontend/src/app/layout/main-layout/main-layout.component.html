@@ -1,0 +1,37 @@
+<a class="skip-link" href="#main-content" (click)="skipToContent($event)">Saltar al contenido</a>
+<header class="site-header">
+  <div class="header-inner container">
+    <a routerLink="/" class="brand" aria-label="DecibelCity, inicio" (click)="profileOpen.set(false)">
+      <span class="brand-symbol"><app-icon name="activity" /></span>
+      <span class="brand-copy"><strong>DecibelCity</strong><span>HUANCAYO · 3,259 MSNM</span></span>
+    </a>
+    <nav class="main-nav" aria-label="Navegación principal">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}" ariaCurrentWhenActive="page">Inicio</a>
+      <a routerLink="/puntos-criticos" routerLinkActive="active" ariaCurrentWhenActive="page">Puntos críticos</a>
+      <a routerLink="/reportar" routerLinkActive="active" ariaCurrentWhenActive="page">Reportar ruido</a>
+    </nav>
+    <div class="header-actions">
+      <a class="button report-button" routerLink="/reportar" aria-label="Reportar ruido"><app-icon name="megaphone" /> <span>Reportar ruido</span></a>
+      <div class="profile-wrap">
+        <button class="profile-button" type="button" aria-label="Información de participación anónima" [attr.aria-expanded]="profileOpen()" aria-controls="participation-info" (click)="toggleProfile()"><app-icon name="user" /></button>
+        @if (profileOpen()) {
+          <div id="participation-info" class="profile-popover">
+            <span class="eyebrow">Una ciudad que escucha</span>
+            <strong>Tu voz cuenta.</strong>
+            <p>Puedes participar de forma anónima. No necesitas crear una cuenta.</p>
+            <a routerLink="/reportar" (click)="profileOpen.set(false)">Hacer un reporte <app-icon name="arrow-right" /></a>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+</header>
+<main id="main-content" tabindex="-1"><router-outlet /></main>
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <a routerLink="/" class="footer-brand"><app-icon name="activity" /> DecibelCity</a>
+    <p>Escuchar la ciudad es el primer paso para cuidarla.</p>
+    <nav class="footer-links" aria-label="Información del servicio"><a routerLink="/privacidad">Privacidad</a><a routerLink="/condiciones">Condiciones</a></nav>
+    <span><a href="https://commons.wikimedia.org/wiki/File:Calle_Real_cuadra_6_1.jpg" target="_blank" rel="noopener noreferrer" title="Foto: Chalisimo5 · CC BY-SA 4.0">FOTO: CHALISIMO5 · CC BY-SA 4.0</a> <span class="footer-dot">●</span></span>
+  </div>
+</footer>
