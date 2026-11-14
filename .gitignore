@@ -1,0 +1,39 @@
+﻿# Incluir únicamente el proyecto
+/*
+!/.gitignore
+!/README.md
+!/frontend/
+!/backend/
+!/Database/
+
+# Dependencias, compilaciones y cachés
+**/node_modules/
+**/.venv/
+**/.uv-cache/
+**/.angular/
+**/dist/
+**/out-tsc/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.cache/
+**/coverage/
+*.py[cod]
+
+# Configuración privada
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
+
+# Datos locales y modelos históricos
+/Database/local/
+/Database/referencias/
+
+# Configuración del editor e instrucciones de agentes
+**/.vscode/
+**/.idea/
+**/.agents/
+**/AGENTS.md
