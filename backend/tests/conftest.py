@@ -104,6 +104,33 @@ def client(settings: Settings, place_verifier):
         yield test_client
 
 
+def make_registration_payload(client: TestClient) -> dict:
+    """Selecciona IDs reales del esquema temporal, sin asumir IDs del catálogo."""
+    catalog = client.get("/api/territories").json()
+    district = next(row for row in catalog["distritos"] if row["ubigeo"] == "120101")
+    province = next(row for row in catalog["provincias"] if row["id_provincia"] == district["id_provincia"])
+    return {
+        "nombres": "Ana María", "apellidos": "Quispe Rojas", "telefono": "+51 964 123 456",
+        "direccion": "Jr. Ica 123, Huancayo", "id_distrito": district["id_distrito"],
+        "id_provincia": province["id_provincia"], "id_departamento": province["id_departamento"],
+        "nombre_usuario": "reporte." + uuid4().hex,
+        "contrasena": "Contraseña de prueba 2026!",
+    }
+
+
+def authenticate_client(client: TestClient) -> dict:
+    """Registra una cuenta de prueba y deja su cookie real en este cliente HTTP."""
+    response = client.post("/api/auth/register", json=make_registration_payload(client))
+    assert response.status_code == 201
+    return response.json()
+
+
+@pytest.fixture
+def authenticated_client(client: TestClient):
+    authenticate_client(client)
+    return client
+
+
 @pytest.fixture
 def report_payload() -> dict:
     return {

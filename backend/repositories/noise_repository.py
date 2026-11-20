@@ -1,32 +1,13 @@
 """Persistencia PostgreSQL; cada operación tiene su conexión y transacción."""
 
-import re
-import psycopg
-from psycopg import sql
-from psycopg.rows import dict_row
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 
+from repositories.database import PostgresDatabase
 from repositories.migrations import HOTSPOT_SELECT, initialize_database
 from schemas.noise import Hotspot, NoiseReport, NoiseSourceOption
 
 
-class NoiseRepository:
-    def __init__(self, database_url: str, database_schema: str = "public") -> None:
-        if not database_url.startswith(("postgresql://", "postgres://")):
-            raise ValueError("La conexión debe utilizar PostgreSQL.")
-        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", database_schema):
-            raise ValueError("El nombre del esquema PostgreSQL no es válido.")
-        self.database_url = database_url
-        self.database_schema = database_schema
-
-    @contextmanager
-    def _connection(self) -> Iterator[psycopg.Connection]:
-        with psycopg.connect(self.database_url, row_factory=dict_row, connect_timeout=5) as connection:
-            connection.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(self.database_schema)))
-            connection.execute("SET TIME ZONE 'UTC'")
-            yield connection
-
+class NoiseRepository(PostgresDatabase):
     def initialize(self, hotspots: Sequence[Hotspot], sources: Sequence[NoiseSourceOption]) -> None:
         with self._connection() as connection:
             initialize_database(connection, hotspots, sources)

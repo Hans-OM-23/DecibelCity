@@ -1,6 +1,6 @@
 """Integración HTTP, validación de entradas y persistencia en PostgreSQL temporal."""
 
-from conftest import db_connection
+from conftest import authenticate_client, db_connection
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,6 +28,7 @@ def test_catalog_and_health(client: TestClient) -> None:
 
 def test_report_is_persisted_after_app_restart(settings: Settings, report_payload: dict, osm_place: dict, place_verifier) -> None:
     with TestClient(create_app(settings, place_verifier)) as client:
+        authenticate_client(client)
         response = client.post("/api/reports", json=report_payload)
         assert response.status_code == 201
         receipt = response.json()
@@ -85,26 +86,26 @@ def test_report_is_persisted_after_app_restart(settings: Settings, report_payloa
     ],
 )
 def test_invalid_report_is_not_saved(
-    client: TestClient, settings: Settings, report_payload: dict, changes: dict
+    authenticated_client: TestClient, settings: Settings, report_payload: dict, changes: dict
 ) -> None:
-    response = client.post("/api/reports", json=report_payload | changes)
+    response = authenticated_client.post("/api/reports", json=report_payload | changes)
     assert response.status_code == 422
     with db_connection(settings) as connection:
         assert connection.execute("SELECT COUNT(*) FROM reportes_ciudadanos").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("decibels", [None, 30, 120, 68.5])
-def test_optional_noise_level_and_boundaries(client: TestClient, report_payload: dict, decibels) -> None:
+def test_optional_noise_level_and_boundaries(authenticated_client: TestClient, report_payload: dict, decibels) -> None:
     report_payload["decibels"] = decibels
-    response = client.post("/api/reports", json=report_payload)
+    response = authenticated_client.post("/api/reports", json=report_payload)
     assert response.status_code == 201
     assert response.json()["decibels"] == decibels
 
 
-def test_omitted_decibels_and_whitespace(client: TestClient, report_payload: dict, osm_place: dict) -> None:
+def test_omitted_decibels_and_whitespace(authenticated_client: TestClient, report_payload: dict, osm_place: dict) -> None:
     del report_payload["decibels"]
     report_payload["location"] = "  Calle Real  "
-    response = client.post("/api/reports", json=report_payload)
+    response = authenticated_client.post("/api/reports", json=report_payload)
     assert response.status_code == 201
     assert response.json()["decibels"] is None
     assert response.json()["location"] == osm_place["display_name"]
@@ -128,6 +129,7 @@ def test_cors_allows_configured_frontend_only(client: TestClient) -> None:
     response = client.options("/api/reports", headers=headers)
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:4200"
+    assert response.headers["access-control-allow-credentials"] == "true"
     response = client.options("/api/reports", headers=headers | {"Origin": "https://unknown.test"})
     assert response.status_code == 400
     assert "access-control-allow-origin" not in response.headers

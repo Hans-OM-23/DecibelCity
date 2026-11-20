@@ -1,12 +1,12 @@
 # Base de datos de DecibelCity
 
-La aplicación utiliza **PostgreSQL**, esquema versión 3: diez tablas del dominio y una tabla técnica de versión. El backend y las pruebas ya no utilizan SQLite. Se mantienen rutas, respuestas HTTP, formulario, mapa y recibo.
+La aplicación utiliza **PostgreSQL**, esquema versión 5: once tablas del dominio (las diez de catálogos, reportes y puntos, más `usuarios`) y una tabla técnica de versión. El backend y las pruebas ya no utilizan SQLite. La versión 5 incluye cuentas; el envío de reportes requiere una sesión verificada por FastAPI, sin guardar una relación entre reporte y usuario.
 
 - [SQL nativo ejecutado por el backend](../backend/repositories/schema.sql).
 - [Diagrama DBML del mismo modelo](esquema-actual.dbml).
 - [Conectar una instalación propia de PostgreSQL y consultar desde pgAdmin](configurar-postgresql-instalado.md).
 - [Ejemplos de consultas SQL](consultas-postgresql.sql).
-- [Inicialización transaccional](../backend/repositories/migrations.py) e [importación de datos](../backend/repositories/data_import.py).
+- [Inicialización transaccional](../backend/repositories/migrations.py), migraciones [v3 → v4](../backend/repositories/upgrade_v4.sql) y [v4 → v5](../backend/repositories/upgrade_v5.sql), e [importación de datos](../backend/repositories/data_import.py).
 - [Esquema original de Antigravity](referencias/esquema-antigravity.dbml), intacto.
 - [DDL históricos v1 y v2](referencias/sqlite-v2/), conservados únicamente como documentación.
 
@@ -20,7 +20,8 @@ La aplicación utiliza **PostgreSQL**, esquema versión 3: diez tablas del domin
 | Fecha del reporte | `TIMESTAMPTZ`; se conserva el instante y se consulta en UTC. |
 | Niveles y posiciones de diseño | `DOUBLE PRECISION`; no se redondea a dos decimales el nivel admitido por la API. |
 | UBIGEO y códigos | `TEXT`, unicidad y restricciones `CHECK`; conserva ceros iniciales. |
-| Versión | Una fila en `decibelcity_schema`, versión 3; reemplaza la versión específica del motor anterior. |
+| Versión | Una fila en `decibelcity_schema`, versión 5. Las bases v3 y v4 se actualizan al iniciar el backend. |
+| Contraseñas | `password_hash TEXT` con un hash Argon2id de `argon2-cffi`; la contraseña nunca se guarda. |
 | Consultas | Psycopg 3, parámetros `%s` y nombres de esquema escapados con `Identifier`. |
 
 El SQL crea la estructura en un esquema vacío. La aplicación carga los catálogos y los tres puntos ilustrativos. No ejecutar nuevamente el DDL sobre tablas existentes. No se utilizan extensiones de PostgreSQL.
@@ -38,7 +39,7 @@ Las razones siguientes son interpretaciones técnicas de las notas resumidas por
 | Nivel de gravedad | Un catálogo futuro podría ordenar y describir gravedades; faltan reglas de evaluación y mediciones verificadas para usarlo. | Gravedad y alertas quedan pendientes por elección del usuario; no se generan infracciones desde estimaciones. |
 | Evitar bucles | No había ciclos dirigidos de claves foráneas. Existía una ruta redundante: alerta → zona y alerta → medición → estación → zona. Esas rutas podían contradecirse. Un ciclo visual, por sí solo, no demuestra un error de diseño. | Una sola ruta territorial: punto → distrito → provincia → departamento. Los demás catálogos no duplican esa dependencia. |
 | Quitar relación con estaciones | La FK obligatoria hacía depender las mediciones de una estación. Retirar solo la FK no resuelve la procedencia de una medición. | Estaciones y mediciones instrumentales ya estaban fuera del proyecto actual; siguen fuera. |
-| Rol activo | Un rol inactivo debe conservarse como referencia; su disponibilidad es distinta de los permisos que pudiera tener. | Catálogo `roles_usuario` con `activo`, sin usuarios, permisos operativos ni roles iniciales inventados. |
+| Rol activo | Un rol inactivo debe conservarse como referencia; su disponibilidad es distinta de los permisos que pudiera tener. | Catálogo `roles_usuario` con `activo`. Desde la versión 5 se asegura el rol base `ciudadano`; enviar reportes requiere sesión, cuenta y rol activos. No hay administración de permisos por rol. |
 
 ## Comparación con el diseño anterior
 
@@ -46,23 +47,27 @@ Las razones siguientes son interpretaciones técnicas de las notas resumidas por
 | --- | --- | --- |
 | `tipos_fuente_ruido` | Catálogo relacionado con reportes y puntos | Conserva los códigos públicos `traffic`, `commerce`, `construction`, `entertainment` y `other`. El tráfico público y particular continúan agrupados; se conserva la opción «Otra fuente». |
 | `estados_denuncia` | `estados_reporte`, inicialmente `received` | Los registros son aportes ciudadanos y no denuncias formales. |
-| `denuncias_ciudadanas` | `reportes_ciudadanos`, sin usuario ni audio | Reportes anónimos, nivel estimado opcional y Place ID verificado por servidor. Se conserva el UUID público. |
+| `denuncias_ciudadanas` | `reportes_ciudadanos`, sin usuario ni audio | Reportes enviados con sesión válida, almacenados sin una relación con la cuenta, con nivel estimado opcional y Place ID verificado. Se conserva el UUID público. |
 | Distritos y zonas urbanas | Jerarquía territorial y zonificación opcional de puntos | Se cargan referencias administrativas, sin representar zonas urbanas delimitadas ni clasificar lugares automáticamente. |
-| Usuarios y roles | Solo catálogo de roles, preparado y vacío | No se solicitan cuentas ni datos personales. |
+| Usuarios y roles | `usuarios` con rol y distrito; rol base `ciudadano` | La cuenta es necesaria para enviar reportes. Su contenido se almacena sin relacionarlo con usuarios; no se garantiza anonimato total. |
 | Estaciones, mediciones y alertas | Fuera del modelo actual | No hay sensores instrumentales ni un proceso de certificación de infracciones. El micrófono se procesa localmente y no se almacena. |
 | Sin catálogo equivalente | `puntos_criticos` | Reemplaza la tabla antigua `hotspots` con JSON por columnas individuales, conservando el contenido del catálogo ilustrativo. |
 
-`reportes_ciudadanos` se relaciona con fuentes y estados; cada fuente, con una categoría. Los puntos se relacionan con fuente, distrito y zonificación opcional. Distrito → provincia → departamento es la única ruta territorial. Los roles se preparan como catálogo independiente. Las ocho claves foráneas son restricciones permanentes de PostgreSQL, con borrado restringido y actualización en cascada. Los nombres, etiquetas y estados de actividad personalizados no se sobrescriben al reiniciar.
+`reportes_ciudadanos` se relaciona con fuentes y estados; cada fuente, con una categoría. Los puntos se relacionan con fuente, distrito y zonificación opcional. Distrito → provincia → departamento es la única ruta territorial. Cada usuario se relaciona con un rol y un distrito; la provincia y el departamento se obtienen a través del distrito, sin columnas duplicadas. Las diez claves foráneas son restricciones permanentes de PostgreSQL, con borrado restringido y actualización en cascada. Los nombres, etiquetas y estados de actividad personalizados no se sobrescriben al reiniciar.
 
 Las etiquetas de fuente específicas de un punto se conservan en `etiqueta_fuente`: pueden explicar una situación particular sin cambiar la etiqueta general del catálogo. Área y sector siguen siendo textos descriptivos. `x` e `y` son posiciones antiguas del diseño, no coordenadas geográficas.
 
 ## Catálogos y disponibilidad
 
-La carga territorial comprende Junín (`12`), provincia de Huancayo (`1201`), distrito de Huancayo (`120101`) y distrito de Chilca (`120107`), los dos distritos usados por el catálogo actual. Se conserva la procedencia del [INEI, página 74](https://www.inei.gob.pe/media/MenuRecursivo/publicaciones_digitales/Est/Lib1887/libro.pdf#page=74); se usan únicamente sus nombres y códigos administrativos. Esta carga parcial no representa un padrón nacional actualizado ni contiene polígonos administrativos.
+La carga territorial inicial comprende el departamento de Junín (`12`) completo: sus **9 provincias** y sus **124 distritos** oficiales, con los códigos UBIGEO del INEI y sus nombres en español. Las provincias son Huancayo (`1201`, 28 distritos), Concepción (`1202`, 15), Chanchamayo (`1203`, 6), Jauja (`1204`, 34), Junín (`1205`, 4), Satipo (`1206`, 9), Tarma (`1207`, 9), Yauli (`1208`, 10) y Chupaca (`1209`, 9). La provincia de cada distrito corresponde a los cuatro primeros dígitos de su UBIGEO. La lista está en `backend/repositories/catalogs.py` (`JUNIN_PROVINCES`, `JUNIN_DISTRICTS`).
 
-La migración vincula las etiquetas exactas `Huancayo` y `Chilca` a esos registros. Los puntos siguen siendo ilustrativos: la correspondencia de su etiqueta no certifica que sus ubicaciones reales pertenezcan al distrito. Las etiquetas desconocidas se conservan literalmente en `distrito_heredado`, con `id_distrito = NULL`. PostgreSQL exige exactamente una de las dos referencias. La API obtiene `district` del nombre del distrito o de la etiqueta histórica.
+Procedencia: [INEI, publicación sobre 2017, páginas 74–77](https://www.inei.gob.pe/media/MenuRecursivo/publicaciones_digitales/Est/Lib1887/libro.pdf#page=74). La auditoría contrastó los nueve pares provinciales y los 124 distritales con ese PDF oficial, incluidos sus UBIGEO y pertenencia. Se corrigieron `120432`, «Tunán Marca», y `120906`, «San Juan de Iscos». Las tildes y el nombre completo «Santa Bárbara de Carhuacayán» se cotejaron con el [Compendio INEI Junín 2010, cuadro 1.5](https://www1.inei.gob.pe/media/MenuRecursivo/publicaciones_digitales/Est/Lib0968/libro.pdf#page=53). La carga representa esas fuentes y no una actualización administrativa automática. Se usan únicamente nombres y códigos administrativos: no se cargan población, coordenadas ni polígonos. Los demás departamentos del Perú no se cargan.
 
-`activo = FALSE` es una desactivación lógica: no elimina registros, no cambia las banderas de los hijos y no oculta puntos históricos. Los reinicios no reactivan catálogos. Las futuras funciones de selección deberán comprobar la actividad efectiva: distrito, provincia y departamento deben estar activos. No se añaden selectores ni asignaciones territoriales al formulario actual.
+La carga es idempotente (`ON CONFLICT (ubigeo) DO NOTHING`, en orden de UBIGEO). Una base existente con la carga anterior (solo Huancayo y Chilca) recibe al reiniciar las provincias y distritos que le faltan, sin cambiar los IDs, nombres ni estados `activo` de los registros que ya tenía. En una base nueva, la provincia de Huancayo conserva `id_provincia = 1`. Insertar a mano un distrito con un nombre ya usado en su provincia, pero con otro UBIGEO, hace fallar el arranque por la restricción `UNIQUE (id_provincia, nombre_distrito)`. La transacción completa se revierte y la base no cambia.
+
+Los puntos ilustrativos se vinculan con las etiquetas exactas `Huancayo` (`120101`) y `Chilca` (`120107`). Los puntos siguen siendo ilustrativos: la correspondencia de su etiqueta no certifica que sus ubicaciones reales pertenezcan al distrito. Las etiquetas desconocidas se conservan literalmente en `distrito_heredado`, con `id_distrito = NULL`. PostgreSQL exige exactamente una de las dos referencias. La API obtiene `district` del nombre del distrito o de la etiqueta histórica.
+
+`activo = FALSE` es una desactivación lógica: no elimina registros, no cambia las banderas de los hijos y no oculta puntos históricos. Los reinicios no reactivan catálogos. Los selectores de registro Departamento → Provincia → Distrito usan únicamente la jerarquía activa; el servidor vuelve a comprobar su pertenencia y la actividad de los tres niveles al crear la cuenta. El formulario de reportes conserva su selección de lugares de OpenStreetMap.
 
 Las categorías iniciales son agrupaciones propias de la aplicación:
 
@@ -76,7 +81,48 @@ Las categorías iniciales son agrupaciones propias de la aplicación:
 
 Las zonificaciones preparadas son `ZONA_PROTECCION_ESPECIAL`, `RESIDENCIAL`, `COMERCIAL` e `INDUSTRIAL`, con nombre y descripción. Los puntos se cargan con `id_zonificacion = NULL`; ni el nombre de un mercado ni el distrito determinan automáticamente la clasificación. No se cargan límites normativos. Los valores de `limite_referencia` existentes conservan su carácter ilustrativo. Una asignación revisada posterior se conserva al reiniciar.
 
-`roles_usuario` empieza vacío. Tener el catálogo no implementa cuentas, autenticación ni permisos.
+`roles_usuario` contiene el rol base `ciudadano`, insertado con `ON CONFLICT DO NOTHING`: si se desactiva o se cambia su descripción, el reinicio lo respeta y el registro responde 503 mientras no haya un rol base activo. Los roles no implementan permisos.
+
+Un elemento territorial está **disponible** solo si él y todos sus niveles superiores están activos. `GET /api/territories` devuelve únicamente elementos disponibles, y el registro rechaza (422) un distrito no disponible.
+
+## Cuentas de usuario
+
+Los nombres de tablas, columnas e índices usan `snake_case`. `usuarios` solo tiene dos claves foráneas: `id_rol` e `id_distrito`. Los identificadores de departamento y provincia se validan en la petición, pero no se duplican en la tabla.
+
+| Operación HTTP | Entrada y respuesta |
+| --- | --- |
+| `GET /api/territories` | 200: `departamentos`, `provincias`, `distritos`, con IDs enteros, UBIGEO de texto de 2/4/6 dígitos y nombres. Provincias incluyen `id_departamento`; distritos, `id_provincia`. Solo jerarquías activas. |
+| `POST /api/auth/register` | Nueve campos obligatorios: `nombres`, `apellidos`, `telefono`, `direccion`, `id_departamento`, `id_provincia`, `id_distrito`, `nombre_usuario`, `contrasena`. Los tres IDs son enteros positivos estrictos y deben pertenecer a la misma jerarquía activa. 201: perfil; 409: usuario duplicado; 422: validación; 503: rol base no disponible. |
+| `POST /api/auth/login` | `nombre_usuario` (1–40 caracteres, recortado) y `contrasena` (1–128 caracteres, sin recorte). 200: perfil; 401: credenciales incorrectas; 403: cuenta desactivada después de verificar la contraseña. `detail` en español. |
+
+El perfil incluye `id_usuario`, `nombre_usuario`, `nombres`, `apellidos`, `telefono`, `direccion`, los tres IDs y nombres territoriales, `rol` y `fecha_registro` (cadena ISO 8601 con zona horaria). Los errores 422 de cuentas devuelven `detail` como lista de `type`, `loc` y `msg`, sin valores recibidos ni claves desconocidas; los errores de dominio devuelven `detail` como texto. Angular admite ambos formatos.
+
+| Columna | Regla |
+| --- | --- |
+| `nombres`, `apellidos` | Entre 2 y 80 caracteres sin contar espacios extremos. |
+| `telefono` | `^[0-9+() -]{6,20}$`. |
+| `direccion` | Entre 5 y 200 caracteres. Texto declarado por la persona; no es una ubicación verificada con OpenStreetMap. |
+| `nombre_usuario` | `^[a-zA-Z0-9_.-]{3,40}$`, `UNIQUE` y además único sin distinguir mayúsculas (`usuarios_nombre_usuario_minusculas_unico`). |
+| `password_hash` | Hash Argon2id (`argon2.PasswordHasher`), con sal aleatoria por cuenta. |
+| `activo` | Una cuenta inactiva no inicia sesión (403), y solo se informa después de verificar la contraseña. |
+
+La contraseña de registro admite 8–128 caracteres, conserva los espacios extremos y no puede contener solo espacios. Solo existe en memoria durante el cálculo o la verificación del hash: no se guarda, no se registra y no se repite en los errores 422 de `/api/auth/*`. Las respuestas devuelven el perfil sin `password_hash`. Al iniciar sesión, un hash con parámetros desactualizados se recalcula (`check_needs_rehash`).
+
+### Sesiones y envío autenticado
+
+Login y registro correctos emiten una cookie opaca `decibelcity_session`: aleatoria, `HttpOnly`, `SameSite=Lax`, ruta `/api`, duración máxima de ocho horas y `Secure` bajo HTTPS. El servidor conserva el digest del identificador de sesión, el ID de la cuenta y su vencimiento. Comprueba que la cuenta y su rol sigan activos; el perfil enviado por Angular o almacenado en `sessionStorage` no demuestra autenticación. Angular mantiene el perfil confirmado solo en memoria y envía cookies con las peticiones de sesión y reportes.
+
+- `GET /api/auth/session`: 200 con el perfil confirmado; 401 sin sesión válida y 403 para una cuenta o rol desactivados.
+- `POST /api/auth/logout`: 204; revoca la sesión y elimina la cookie.
+- `POST /api/reports`: 201 solo con sesión válida. Una cookie ausente, falsa, vencida o revocada produce 401; una cuenta desactivada produce 403. Los POST rechazan orígenes de navegador ajenos a la aplicación antes de guardar o verificar lugares. CORS permite credenciales únicamente para los orígenes configurados.
+
+Las sesiones son de un único proceso, se limitan en memoria y no se guardan en PostgreSQL. Reiniciar el backend obliga a iniciar sesión de nuevo; no se admiten varios workers con este almacenamiento. El esquema permanece en versión 5. La cuenta se usa para autorizar el envío, pero `reportes_ciudadanos` continúa sin `id_usuario`; esto no supone una garantía de anonimato frente a toda correlación técnica.
+
+### Borrador y regreso al formulario
+
+Antes de consultar la sesión y enviar, `ReportDraftService` guarda el texto, la fuente, la descripción, la opción de nivel, su valor y `selectedPlace` completo, incluidas las coordenadas del marcador. Conserva incluso los campos incompletos y el nivel desactivado. El servidor sigue verificando el Place ID al enviar; el borrador no convierte la dirección o las coordenadas del navegador en una ubicación verificada.
+
+Sin sesión, el formulario regresa a `/login?returnUrl=/reportar`; el enlace a `/registro` conserva ese destino. Si se usa directamente la navegación de la cabecera, abandonar el formulario también guarda sus cambios antes de abrir Login o Registro. El acceso correcto vuelve a `/reportar`, restaura todos los campos y el marcador, y requiere confirmar el envío. Los errores de validación, red o caducidad conservan el borrador más reciente. Solo un envío confirmado o `newReport()` lo elimina. `sessionStorage` se valida al recuperar datos y cuenta con una copia en memoria si el navegador lo bloquea; esa copia no sobrevive a recargar la página.
 
 ## Reportes y privacidad
 
@@ -119,7 +165,7 @@ La carpeta `Database/local/` y `backend/.env` están excluidos de Git. `Database
 
 ## Inicialización y transferencia de datos
 
-La versión 3 corresponde al esquema nativo de PostgreSQL. El inicio adquiere un bloqueo transaccional por base/esquema, valida la versión y crea las tablas si el esquema está vacío. Catálogos y puntos usan `ON CONFLICT DO NOTHING`: los reinicios no duplican filas, sobrescriben textos ni reactivan catálogos. Una estructura desconocida o versión futura cancela el inicio antes de cargar datos. El DDL y la carga inicial se confirman juntos; cualquier fallo revierte la transacción.
+La versión 5 es la actual. El inicio adquiere un bloqueo transaccional por base/esquema, valida la versión y crea las tablas si el esquema está vacío. Una base v3 o v4 se actualiza en la misma transacción (`upgrade_v4.sql`, `upgrade_v5.sql`); la migración a v5 solo crea `usuarios` y sus índices, sin modificar filas existentes. Una base que declara v5 sin la tabla `usuarios` se rechaza. Catálogos y puntos usan `ON CONFLICT DO NOTHING`: los reinicios no duplican filas, sobrescriben textos ni reactivan catálogos. Una estructura desconocida o versión futura cancela el inicio antes de cargar datos. El DDL y la carga inicial se confirman juntos; cualquier fallo revierte la transacción.
 
 La transferencia local realizada conserva los dos reportes históricos y los tres puntos ilustrativos de la versión 2. Se exportaron en modo lectura a `Database/local/export-v2.json` y se importaron en una base PostgreSQL vacía. Se conservan todos los campos, claves, marcas históricas, niveles opcionales y textos. Las fechas se convierten a `TIMESTAMPTZ` manteniendo el mismo instante. Los archivos antiguos y sus respaldos no se modifican ni se utilizan en ejecución.
 
@@ -129,7 +175,7 @@ Para importar otra exportación v2 previamente preparada, antes de iniciar la ap
 uv run --env-file .env scripts/import_data.py ../Database/local/export-v2.json
 ```
 
-El formato contiene `format: "decibelcity-v2"` y `tables` con las diez tablas, todas sus columnas y filas. Sus columnas deben coincidir con las del esquema actual (versión 4). El importador exige tablas vacías, inserta en orden de dependencias, verifica cada campo contra lo leído y reinicia las identidades después del mayor ID. Una referencia inválida, columna desconocida, marca incorrecta o fecha sin zona cancela toda la importación, incluido el DDL. No descarta campos silenciosamente ni mezcla datos con una base ya usada.
+El formato contiene `format: "decibelcity-v2"` y `tables` con las diez tablas, todas sus columnas y filas. Sus columnas deben coincidir con las del esquema actual (versión 5). La exportación no incluye `usuarios`: las cuentas y sus hashes no se transfieren con este formato, y la tabla de destino también debe estar vacía. El importador exige tablas vacías, inserta en orden de dependencias, verifica cada campo contra lo leído y reinicia las identidades después del mayor ID. Una referencia inválida, columna desconocida, marca incorrecta o fecha sin zona cancela toda la importación, incluido el DDL. No descarta campos silenciosamente ni mezcla datos con una base ya usada.
 
 Las bases antiguas de versiones 0 y 1 no se abren automáticamente desde esta aplicación. Deben convertirse sobre una copia a una exportación normalizada v2 antes de usar este importador; los DDL archivados documentan sus estructuras, no son conversores ejecutables. La base local existente ya completó esas conversiones antes de esta transferencia. Los respaldos históricos permanecen en `Database/local/backups/`.
 
@@ -141,7 +187,7 @@ Para el servidor portátil, con PostgreSQL iniciado:
 uv run scripts/postgres_local.py backup
 ```
 
-Utiliza `pg_dump --format=custom`, que obtiene una instantánea consistente de los datos confirmados; guarda un archivo `.dump` fechado en `Database/local/backups/`. No copiar directamente la carpeta del clúster mientras el servidor esté escribiendo. Antes de una futura modificación de esquema sobre datos existentes, crear y comprobar un respaldo. El inicio normal de versión 3 no modifica la versión ni crea respaldos repetidos.
+Utiliza `pg_dump --format=custom`, que obtiene una instantánea consistente de los datos confirmados; guarda un archivo `.dump` fechado en `Database/local/backups/`. No copiar directamente la carpeta del clúster mientras el servidor esté escribiendo. Antes de una futura modificación de esquema sobre datos existentes, crear y comprobar un respaldo. El inicio normal de versión 5 no modifica la versión ni crea respaldos repetidos.
 
 Restaurar a una base nueva conserva la base activa. Sustituir el archivo por un respaldo existente:
 
@@ -157,6 +203,8 @@ Para utilizar la copia, detener las instancias del backend, conservar la configu
 
 `uv run pytest` usa PostgreSQL real, no un motor sustituto. Requiere `DECIBELCITY_TEST_DATABASE_URL` apuntando a una base exclusiva cuyo nombre termine en `_test`. Cada prueba crea un esquema `test_<UUID>` y elimina únicamente ese esquema al finalizar; nunca usa la base de la aplicación como alternativa. Lee esa variable del entorno o de `backend/.env`.
 
-Las pruebas cubren tipos nativos, identidades, ocho claves foráneas, UBIGEO, categorías obligatorias, marcas históricas, nivel opcional, verificación de lugares, contrato HTTP, conservación de datos personalizados, desactivación, reinicios y concurrencia. Comprueban reversión completa tanto del DDL como de importaciones inválidas. Nominatim y Photon se simulan en las pruebas; no se usa la red.
+Las pruebas cubren tipos nativos, identidades, diez claves foráneas, migración v4 → v5 (incluida su reversión), restricciones `CHECK`/`UNIQUE` de `usuarios`, hash y verificación Argon2id, registro e inicio de sesión, catálogo completo de Junín (9 provincias y 124 distritos) y registro con distritos de cada provincia, UBIGEO, categorías obligatorias, marcas históricas, nivel opcional, verificación de lugares, contrato HTTP, conservación de datos personalizados, desactivación, reinicios y concurrencia. Comprueban reversión completa tanto del DDL como de importaciones inválidas. Nominatim y Photon se simulan en las pruebas; no se usa la red.
 
-Desde `backend/`: `uv run pytest` y `uv pip check`. Desde `frontend/`: `npm test` y `npm run build`. Completar con revisión en navegador de navegación, formulario, recibo y estados de error. Los puntos y valores de referencia mantienen su carácter ilustrativo.
+Desde `backend/`: `uv pip check` y `uv run pytest`. Desde `frontend/`: `npm run typecheck`, `npm test` y `npm run build`. Bootstrap estable 5.3.x se carga sin jQuery, después de Leaflet y antes de `styles.css`; el tema oscuro y la atribución de OpenStreetMap se conservan. El bundle debe respetar los presupuestos de `angular.json`. Completar con revisión en navegador de navegación, cascada territorial, registro, login, recibo y estados de error. Los puntos y valores de referencia mantienen su carácter ilustrativo.
+
+Auditoría del 19 de noviembre de 2026: los cinco comandos finalizaron correctamente, con 262 pruebas de backend y 75 de frontend; bundle inicial de 554,87 kB frente a los presupuestos de 600 kB (advertencia) y 800 kB (error). La comprobación HTTP real usó puertos aislados, un esquema temporal en la base `_test` y respuestas de Nominatim simuladas: verificó el proxy de Angular, registro en las nueve provincias, cookies, envío autorizado, logout, revocación, caducidad y rechazo de origen ajeno. El router de Angular se probó con Login/Registro reales y un sustituto del mapa para comprobar los datos del marcador. La inspección visual y el selector `base-select` en un navegador real permanecen pendientes por indisponibilidad de las herramientas; esos resultados automatizados no acreditan renderizado visual. Persisten dos advertencias no bloqueantes de Starlette/httpx y permisos de caché de pytest.

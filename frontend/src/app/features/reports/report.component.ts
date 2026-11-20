@@ -2,9 +2,11 @@ import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
-import { finalize } from 'rxjs';
+import { Router, RouterLink } from '@angular/router';
+import { EMPTY, finalize, switchMap } from 'rxjs';
 import { NoiseApiService } from '../../core/services/noise-api.service';
+import { AuthService } from '../../core/services/auth.service';
+import { ReportDraftService } from '../../core/services/report-draft.service';
 import { NoiseReport, NoiseReportCreate, NoiseSource } from '../../core/interfaces/noise.interface';
 import { SelectedPlace } from '../../core/interfaces/maps.interface';
 import { IconComponent } from '../../shared/components/icon/icon.component';
@@ -23,6 +25,9 @@ type ReportField = 'location' | 'source' | 'description' | 'decibels';
 export class ReportComponent {
   private readonly api = inject(NoiseApiService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
+  private readonly reportDraftService = inject(ReportDraftService);
 
   readonly location = signal('');
   readonly selectedPlace = signal<SelectedPlace | null>(null);
@@ -51,7 +56,33 @@ export class ReportComponent {
   }));
 
   constructor() {
+    this.restoreDraftIfAny();
     this.loadSources();
+    this.destroyRef.onDestroy(() => {
+      if (!this.receipt() && (this.selectedPlace() || this.location() || this.source() || this.description()
+        || this.includeDecibels() || this.decibels() !== 70)) {
+        this.saveCurrentDraft();
+      }
+    });
+  }
+
+  private restoreDraftIfAny(): void {
+    const draft = this.reportDraftService.getDraft();
+    if (!draft) return;
+
+    this.location.set(draft.location ?? '');
+    this.selectedPlace.set(draft.selectedPlace ?? null);
+    this.source.set(draft.source ?? '');
+    this.includeDecibels.set(Boolean(draft.includeDecibels));
+    this.decibels.set(draft.decibels);
+    this.description.set(draft.description ?? '');
+
+    if (draft.selectedPlace) {
+      this.touch('location');
+    }
+    if (draft.source) {
+      this.touch('source');
+    }
   }
 
   loadSources(): void {
@@ -104,26 +135,59 @@ export class ReportComponent {
 
   submit(event: Event): void {
     event.preventDefault();
-    if (this.submitting() || this.sourcesLoading() || this.sourcesError()) return;
-    this.attempted.set(true);
-    if (Object.values(this.errors()).some(Boolean)) return;
-    const place = this.selectedPlace();
-    if (!place) return;
+    if (this.submitting()) return;
+    // Guardar también entradas incompletas y el valor del nivel aunque esté desactivado.
+    this.saveCurrentDraft();
     this.submitting.set(true);
     this.submitError.set('');
-    const payload: NoiseReportCreate = {
-      location: this.location().trim(),
-      place_id: place.placeId,
-      source: this.source() as NoiseReportCreate['source'],
-      description: this.description().trim(),
-      decibels: this.includeDecibels() ? this.decibels() : null,
-    };
-    this.api.createReport(payload)
-      .pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.submitting.set(false)))
+    this.authService.checkSession()
+      .pipe(
+        switchMap((user) => {
+          if (!user) {
+            this.returnToLogin();
+            return EMPTY;
+          }
+          this.attempted.set(true);
+          if (this.sourcesLoading() || this.sourcesError() || Object.values(this.errors()).some(Boolean)) return EMPTY;
+          const place = this.selectedPlace();
+          if (!place) return EMPTY;
+          const payload: NoiseReportCreate = {
+            location: this.location().trim(),
+            place_id: place.placeId,
+            source: this.source() as NoiseReportCreate['source'],
+            description: this.description().trim(),
+            decibels: this.includeDecibels() ? this.decibels() : null,
+          };
+          return this.api.createReport(payload);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.submitting.set(false)),
+      )
       .subscribe({
-        next: (report) => this.receipt.set(report),
-        error: (error: unknown) => this.submitError.set(this.reportErrorMessage(error)),
+        next: (report) => {
+          this.receipt.set(report);
+          this.reportDraftService.clearDraft();
+        },
+        error: (error: unknown) => {
+          if (error instanceof HttpErrorResponse && (error.status === 401 || error.status === 403)) {
+            this.authService.clearLocalSession();
+            this.returnToLogin();
+          } else {
+            this.submitError.set(this.reportErrorMessage(error));
+          }
+        },
       });
+  }
+
+  private returnToLogin(): void {
+    this.router.navigate(['/login'], { queryParams: { returnUrl: '/reportar' } });
+  }
+
+  private saveCurrentDraft(): void {
+    this.reportDraftService.saveDraft({
+      location: this.location(), selectedPlace: this.selectedPlace(), source: this.source(),
+      includeDecibels: this.includeDecibels(), decibels: this.decibels(), description: this.description(),
+    });
   }
 
   private reportErrorMessage(error: unknown): string {
@@ -150,5 +214,6 @@ export class ReportComponent {
     this.attempted.set(false);
     this.touched.set(new Set());
     this.submitError.set('');
+    this.reportDraftService.clearDraft();
   }
 }

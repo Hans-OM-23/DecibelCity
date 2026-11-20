@@ -11,7 +11,7 @@ from conftest import db_connection
 from main import create_app
 from repositories.catalogs import insert_hotspot
 from repositories.data_import import import_snapshot
-from repositories.migrations import TABLE_ORDER, DatabaseMigrationError
+from repositories.migrations import ACCOUNT_TABLES, TABLE_ORDER, DatabaseMigrationError
 from repositories.noise_repository import NoiseRepository
 from services.noise_service import DEMO_HOTSPOTS, NOISE_SOURCES
 
@@ -39,7 +39,7 @@ def snapshot(settings):
             rows = connection.execute(sql.SQL('SELECT * FROM {} ORDER BY 1').format(sql.Identifier(table))).fetchall()
             tables[table] = [{key: value.isoformat() if isinstance(value,datetime) else int(value) if isinstance(value,bool) else value
                              for key,value in row.items()} for row in rows]
-        connection.execute(sql.SQL('DROP TABLE {} CASCADE').format(sql.SQL(',').join(map(sql.Identifier, (*TABLE_ORDER,'decibelcity_schema')))))
+        connection.execute(sql.SQL('DROP TABLE {} CASCADE').format(sql.SQL(',').join(map(sql.Identifier, (*TABLE_ORDER,*ACCOUNT_TABLES,'decibelcity_schema')))))
     return {'format':'decibelcity-v2','tables':tables}
 
 
@@ -89,6 +89,15 @@ def test_invalid_import_rolls_back_schema_and_all_rows(settings, snapshot, damag
         tables['reportes_ciudadanos'][0]['id_lugar'] = None
         tables['reportes_ciudadanos'][0]['proveedor_lugar'] = None
     with pytest.raises((ValueError,psycopg.IntegrityError)):
+        import_snapshot(repository(settings), snapshot)
+    with db_connection(settings) as connection:
+        assert connection.execute('SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema()').fetchall() == []
+
+
+def test_import_rejects_account_tables_in_snapshot(settings, snapshot):
+    """La exportación v2 no transporta cuentas ni hashes de contraseña."""
+    snapshot['tables']['usuarios'] = []
+    with pytest.raises(ValueError, match='diez tablas'):
         import_snapshot(repository(settings), snapshot)
     with db_connection(settings) as connection:
         assert connection.execute('SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema()').fetchall() == []

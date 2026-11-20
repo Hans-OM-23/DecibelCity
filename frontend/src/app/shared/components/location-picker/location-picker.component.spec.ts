@@ -115,4 +115,21 @@ describe('LocationPickerComponent: búsqueda de OpenStreetMap', () => {
     expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain('no está disponible');
     expect(emitted).toEqual([]);
   });
+
+  it('restaura la ubicación seleccionada cuando se pasa selectedPlace por input y muestra el mapa', () => {
+    const preselected: SelectedPlace = {
+      placeId: 'W813046785',
+      address: 'Avenida Giraldez, San Carlos, Huancayo',
+      position: { lat: -12.0664834, lng: -75.2062612 },
+    };
+
+    fixture.componentRef.setInput('selectedPlace', preselected);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Ubicación seleccionada');
+    expect(fixture.nativeElement.textContent).toContain('Avenida Giraldez');
+    expect(fixture.nativeElement.querySelector('#location-search')).toBeNull();
+    expect(fixture.componentInstance.mapPoints().length).toBe(1);
+    expect(fixture.componentInstance.mapPoints()[0].id).toBe('W813046785');
+  });
 });

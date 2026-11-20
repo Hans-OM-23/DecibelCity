@@ -2,9 +2,11 @@
 
 import httpx
 import pytest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from fastapi.testclient import TestClient
 
-from conftest import USER_AGENT, db_connection, make_verifier
+from conftest import USER_AGENT, authenticate_client, db_connection, make_verifier
 from config import Settings
 from main import create_app
 from services.osm_places import PhotonSearcher
@@ -21,11 +23,16 @@ def photon_feature(**changes) -> dict:
     return {"type": "Feature", "geometry": {"type": "Point", "coordinates": coordinates}, "properties": properties}
 
 
-def app_with(settings: Settings, verifier_response=None, photon_response=None) -> TestClient:
-    verifier_client = httpx.Client(transport=httpx.MockTransport(verifier_response or (lambda r: httpx.Response(500))))
-    photon_client = httpx.Client(transport=httpx.MockTransport(photon_response or (lambda r: httpx.Response(500))))
-    searcher = PhotonSearcher("https://photon.test", USER_AGENT, photon_client)
-    return TestClient(create_app(settings, make_verifier(verifier_client), searcher))
+@contextmanager
+def app_with(settings: Settings, verifier_response=None, photon_response=None) -> Iterator[TestClient]:
+    with (
+        httpx.Client(transport=httpx.MockTransport(verifier_response or (lambda r: httpx.Response(500)))) as verifier_client,
+        httpx.Client(transport=httpx.MockTransport(photon_response or (lambda r: httpx.Response(500)))) as photon_client,
+    ):
+        searcher = PhotonSearcher("https://photon.test", USER_AGENT, photon_client)
+        with TestClient(create_app(settings, make_verifier(verifier_client), searcher)) as client:
+            authenticate_client(client)
+            yield client
 
 
 def report_count(settings: Settings) -> int:
@@ -44,22 +51,23 @@ def test_public_config_has_no_keys(client: TestClient) -> None:
     assert "key" not in response.text.lower()
 
 
-def test_missing_place_id_is_rejected(client: TestClient, report_payload: dict) -> None:
+def test_missing_place_id_is_rejected(authenticated_client: TestClient, report_payload: dict) -> None:
     del report_payload["place_id"]
-    assert client.post("/api/reports", json=report_payload).status_code == 422
+    assert authenticated_client.post("/api/reports", json=report_payload).status_code == 422
 
 
 def test_forged_location_is_replaced_and_address_is_not_stored(
-    client: TestClient, settings: Settings, report_payload: dict, osm_place: dict
+    authenticated_client: TestClient, settings: Settings, report_payload: dict, osm_place: dict
 ) -> None:
     report_payload["location"] = "Dirección inventada en otro país"
-    response = client.post("/api/reports", json=report_payload)
+    response = authenticated_client.post("/api/reports", json=report_payload)
     assert response.status_code == 201
     receipt = response.json()
     assert receipt["location"] == osm_place["display_name"]
     with db_connection(settings) as connection:
         columns = {row[0] for row in connection.execute("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='reportes_ciudadanos'")}
         assert "latitude" not in columns and "longitude" not in columns
+        assert "id_usuario" not in columns
         row = connection.execute("SELECT * FROM reportes_ciudadanos WHERE id_reporte = %s", (receipt["id"],)).fetchone()
         assert osm_place["display_name"] not in row
         assert report_payload["location"] not in row

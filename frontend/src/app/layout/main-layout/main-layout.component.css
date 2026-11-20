@@ -12,12 +12,70 @@
 .main-nav a.active { background: #222732; color: var(--accent); }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; min-width: 230px; }
 .report-button { background: #32b9ed; color: #052637; min-height: 36px; padding: 8px 15px; font-size: 14px; }
+.nav-auth-link {
+  color: #b9c2ce;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  white-space: nowrap;
+}
+.nav-auth-link:hover {
+  color: var(--accent);
+  background-color: rgba(139, 212, 255, 0.08);
+}
+.nav-auth-link--register {
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+.nav-auth-link--register:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.user-status-pill {
+  padding: 5px 11px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 12px;
+}
+.user-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #52c41a;
+  display: inline-block;
+  box-shadow: 0 0 6px #52c41a;
+}
+.user-status-name {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.popover-action-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  padding: 6px 0;
+  text-decoration: none;
+}
+.popover-action-link:hover {
+  color: var(--accent);
+}
+
 .profile-button { display: grid; place-items: center; border: 0; width: 36px; height: 36px; border-radius: 13px; background: var(--accent); color: #08334b; }
 .profile-wrap { position: relative; }
-.profile-popover { position: absolute; top: 49px; right: 0; width: 280px; padding: 23px; border: 1px solid var(--border); border-radius: 10px; background: #1b2330; box-shadow: 0 15px 50px #0008; z-index: 20; }
+.profile-popover { position: absolute; top: 49px; right: 0; width: 290px; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: #1b2330; box-shadow: 0 15px 50px #0008; z-index: 20; }
 .profile-popover .eyebrow { font-size: 9px; color: var(--accent); }
-.profile-popover strong { display: block; font-size: 24px; margin: 12px 0 8px; font-weight: 500; }
-.profile-popover p { color: var(--muted); font-size: 13px; line-height: 1.65; }
+.profile-popover strong { display: block; font-size: 20px; margin: 10px 0 6px; font-weight: 500; }
+.profile-popover p { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .profile-popover a { color: var(--accent); font-size: 13px; }
 main { min-height: calc(100vh - 177px); outline: none; }
 .site-footer { border-top: 1px solid #202630; padding: 28px 0; margin-top: 0; }
