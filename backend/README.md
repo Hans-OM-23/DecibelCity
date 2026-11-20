@@ -18,11 +18,13 @@ Documentación interactiva: [Swagger UI](http://127.0.0.1:8000/docs).
 ## Organización
 
 - `schemas/noise.py`: contratos y validación de entradas y respuestas.
+- `schemas/users.py`, `services/auth_service.py`, `apis/auth.py` y `repositories/user_repository.py`: catálogo territorial, registro e inicio de sesión con hashes Argon2id (`argon2-cffi`).
+- `repositories/database.py`: conexión PostgreSQL compartida por los repositorios.
 - `services/noise_service.py`: lógica del dominio, catálogo y datos ilustrativos iniciales.
 - `services/osm_places.py`: búsqueda de lugares con Photon y verificación con Nominatim (OpenStreetMap).
 - `apis/noise.py`: rutas HTTP.
 - `repositories/noise_repository.py`: persistencia PostgreSQL mediante consultas parametrizadas.
-- `repositories/migrations.py` y `repositories/schema.sql`: inicialización transaccional PostgreSQL, esquema versión 4, actualización automática desde v3 (`repositories/upgrade_v4.sql`) y bloqueo de concurrencia.
+- `repositories/migrations.py` y `repositories/schema.sql`: inicialización transaccional PostgreSQL, esquema versión 5, actualización automática desde v3 y v4 (`repositories/upgrade_v4.sql`, `repositories/upgrade_v5.sql`) y bloqueo de concurrencia.
 - `repositories/data_import.py`: transferencia atómica desde una exportación normalizada v2.
 - `scripts/postgres_local.py`: preparar, iniciar, detener y respaldar el servidor local sin instalar servicios.
 - `repositories/catalogs.py`: carga inicial territorial y de catálogos sin sobrescribir personalizaciones ni estados de actividad.
@@ -39,7 +41,18 @@ Documentación interactiva: [Swagger UI](http://127.0.0.1:8000/docs).
 | GET | `/api/maps/config` | URL de teselas, atribución de OpenStreetMap, centro y cobertura (sin claves) |
 | GET | `/api/places/search?q=` | Hasta 8 sugerencias de Photon dentro de Huancayo: `{place_id, name, address, lat, lng}`. `q` de 3 a 120 caracteres |
 | GET | `/api/noise-sources` | Catálogo `{value, label}` |
-| POST | `/api/reports` | Guarda el reporte y devuelve un recibo con ID, fecha UTC y estado `received` |
+| POST | `/api/reports` | Requiere sesión activa; 201 con recibo, 401 sin sesión válida y 403 por cuenta/rol desactivados u origen ajeno |
+| GET | `/api/territories` | `{departamentos, provincias, distritos}` disponibles (activos en toda la jerarquía) |
+| POST | `/api/auth/register` | `201` con `UserProfile`. `409` nombre de usuario ocupado, `422` datos inválidos o distrito no disponible, `503` sin rol base activo |
+| POST | `/api/auth/login` | `200` con `UserProfile` y cookie de sesión. `401` credenciales incorrectas, `403` cuenta desactivada |
+| GET | `/api/auth/session` | `200` con el perfil confirmado; `401` sesión ausente, falsa, vencida o revocada; `403` cuenta/rol desactivados |
+| POST | `/api/auth/logout` | `204`; revoca la sesión y elimina su cookie |
+
+El registro recibe los nueve campos del formulario: `nombres`, `apellidos`, `telefono`, `direccion`, `id_departamento`, `id_provincia`, `id_distrito`, `nombre_usuario` y `contrasena`. Los tres IDs deben formar una jerarquía activa; solo `id_distrito` se persiste. Las respuestas de cuentas excluyen contraseñas y hashes, incluso en errores de validación. Consultar el [contrato y las restricciones de cuentas](../Database/base-datos.md#cuentas-de-usuario).
+
+Registro y login correctos crean una sesión opaca de ocho horas en una cookie `HttpOnly`, `SameSite=Lax`, ruta `/api` y `Secure` bajo HTTPS. FastAPI valida la sesión y la actividad de la cuenta/rol antes de consultar Nominatim o guardar un reporte. Los POST rechazan un `Origin` de navegador ajeno a la aplicación; CORS usa credenciales y orígenes explícitos. El perfil en `sessionStorage` no acredita permisos y Angular ya no lo usa para iniciar una sesión.
+
+Las sesiones se guardan únicamente en memoria del proceso, con identificadores resumidos mediante hash; un reinicio las invalida. Ejecutar con un solo worker. Esta implementación no es un almacén distribuido de sesiones y no cambia el esquema PostgreSQL v5. El reporte almacenado permanece sin relación con el usuario. Angular conserva el borrador durante login/registro y ante un 401/403, y lo elimina únicamente después de un envío confirmado o al iniciar otro reporte.
 
 Ejemplo de cuerpo de reporte:
 
@@ -61,13 +74,13 @@ Se exige país `PE`, coordenadas dentro de la cobertura operativa de Huancayo (s
 
 Un lugar inválido o fuera de cobertura produce `422`; la indisponibilidad temporal del servicio (límite de uso, error 5xx o tiempo de espera) produce `503`; un fallo de comunicación o respuesta no válida produce `502`. Los errores no devuelven detalles internos del proveedor. El backend espacia las consultas a Nominatim al menos 1 segundo, como pide su política de uso.
 
-Los reportes se guardan en la base PostgreSQL configurada en `DECIBELCITY_DATABASE_URL` y sobreviven a los reinicios. No se piden nombre, correo ni otros identificadores personales, ni se almacenan IP o datos del navegador en la base. El texto libre podría contener información personal si quien lo escribe la incluye; el formulario debe pedir que no se incluyan estos datos. No existe una ruta pública que permita consultar reportes individuales o listar su contenido. El catálogo ilustrativo no se modifica automáticamente a partir de reportes sin verificar.
+Los reportes se guardan en la base PostgreSQL configurada en `DECIBELCITY_DATABASE_URL` y sobreviven a los reinicios. Enviar requiere una cuenta activa; el reporte no guarda una relación con esa cuenta, ni IP o datos del navegador. El texto libre podría contener información personal si quien lo escribe la incluye; el formulario debe pedir que no se incluyan estos datos. No existe una ruta pública que permita consultar reportes individuales o listar su contenido. El catálogo ilustrativo no se modifica automáticamente a partir de reportes sin verificar.
 
 Para reportes nuevos se persisten sólo el identificador del lugar (`id_lugar`, con `proveedor_lugar = 'osm'`) y los datos aportados sobre el ruido. La dirección y las coordenadas se devuelven en el recibo inmediato y no se guardan en PostgreSQL. Los reportes creados con la versión anterior conservan su identificador de Google con `proveedor_lugar = 'google'`. El modelo conserva las tablas `tipos_fuente_ruido`, `estados_reporte`, `reportes_ciudadanos` y `puntos_criticos`, y añade `departamentos`, `provincias`, `distritos`, `zonificaciones`, `categorias_fuente_ruido` y `roles_usuario`, con claves foráneas activas. Las ubicaciones antiguas de reportes se conservan en `ubicacion_heredada`, exclusivamente en filas marcadas como históricas.
 
-Al iniciar, el backend crea el esquema PostgreSQL versión 4 si está vacío; si encuentra la versión 3, la actualiza en la misma transacción (renombra `google_place_id` a `id_lugar`, añade `proveedor_lugar` y las coordenadas de los puntos) sin borrar reportes; después carga catálogos sin sobrescribirlos. La transferencia local conservó los reportes y puntos de la base anterior. No hay ejecución ni conversión automática de archivos del motor anterior. Consultar la [evaluación, transferencia, preparación local y restauración de respaldos](../Database/base-datos.md).
+Al iniciar, el backend crea el esquema PostgreSQL versión 5 si está vacío; si encuentra v3 o v4, ejecuta las migraciones pendientes en la misma transacción sin borrar reportes. La migración v5 añade `usuarios` y sus índices; después carga catálogos sin sobrescribirlos. La transferencia local conservó los reportes y puntos de la base anterior. No hay ejecución ni conversión automática de archivos del motor anterior. Consultar la [evaluación, transferencia, preparación local y restauración de respaldos](../Database/base-datos.md).
 
-Los puntos referencian distritos del catálogo local; `district` mantiene su contrato y usa el nombre relacionado o `distrito_heredado` cuando la etiqueta es desconocida. La jerarquía local no certifica la ubicación de los puntos ilustrativos. Las zonificaciones se cargan sin asignarlas a puntos; los roles empiezan vacíos. No se añaden cuentas, pantallas administrativas, estaciones ni alertas.
+El catálogo territorial comprende las nueve provincias y los 124 distritos de Junín, según las fuentes INEI citadas en `Database/base-datos.md`. Los puntos referencian distritos del catálogo local; `district` mantiene su contrato y usa el nombre relacionado o `distrito_heredado` cuando la etiqueta es desconocida. La jerarquía local no certifica la ubicación de los puntos ilustrativos. Las zonificaciones se cargan sin asignarlas a puntos; el rol base activo `ciudadano` se asigna a las cuentas nuevas. Se incluyen registro, sesión y autorización del envío, sin pantallas administrativas, estaciones ni alertas.
 
 Los puntos del catálogo incluyen `latitude` y `longitude` aproximadas, tomadas de OpenStreetMap (© colaboradores de OSM, ODbL). Sus valores de ruido siguen siendo ilustrativos. Las propiedades históricas `x`/`y` se mantienen por compatibilidad y no son coordenadas geográficas.
 

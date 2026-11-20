@@ -1,6 +1,6 @@
 <section class="report-page" aria-labelledby="report-title">
   <header class="report-intro">
-    <div class="intro-topline"><span class="eyebrow"><span class="status-dot"></span> Participación cívica / Registro anónimo</span><span class="badge">Tu ciudad, tu voz</span></div>
+    <div class="intro-topline"><span class="eyebrow"><span class="status-dot"></span> Participación cívica / Reporte ciudadano</span><span class="badge">Tu ciudad, tu voz</span></div>
     <h1 id="report-title">Ayúdanos a identificar<br class="desktop-break"> zonas ruidosas<span class="title-dot">.</span></h1>
     <p>Registra un punto donde el ruido ambiental afecte a tu comunidad en Huancayo.</p>
   </header>
@@ -22,7 +22,7 @@
         <legend class="visually-hidden">Información del punto de ruido</legend>
         <div class="form-field location-field" role="group" aria-labelledby="location-label" [attr.aria-describedby]="fieldError('location') ? 'location-hint location-error' : 'location-hint'">
           <span id="location-label" class="visually-hidden">Ubicación del problema</span>
-          <app-location-picker [disabled]="submitting()" (locationSelected)="selectLocation($event)" />
+          <app-location-picker [selectedPlace]="selectedPlace()" [disabled]="submitting()" (locationSelected)="selectLocation($event)" />
           <p id="location-hint" class="field-hint">Busca una calle, plaza o lugar de Huancayo y selecciona una sugerencia. El servicio verificará la ubicación con OpenStreetMap al enviar el reporte.</p>
           @if (fieldError('location')) { <p id="location-error" class="field-error" role="alert">{{ fieldError('location') }}</p> }
         </div>
@@ -68,7 +68,7 @@
     </form>
   }
 
-  <aside class="privacy-note"><app-icon name="shield" /><div><p>Tu participación es anónima. Los reportes contribuyen a visibilizar el ruido en Huancayo sin solicitar nombre ni correo.</p><p class="location-verification-note">Las búsquedas de ubicación se envían desde nuestro servidor a servicios de OpenStreetMap (Photon y Nominatim), sin datos que te identifiquen. Al enviar, guardamos el identificador del lugar junto con tu reporte. <a routerLink="/privacidad">Conoce cómo usamos la información.</a></p></div></aside>
+  <aside class="privacy-note"><app-icon name="shield" /><div><p>Debes iniciar sesión para enviar. Si necesitas ingresar o registrarte, conservaremos el borrador para que vuelvas al formulario. El reporte se guarda sin vincularlo a tu cuenta; evita incluir datos personales.</p><p class="location-verification-note">Las búsquedas de ubicación se envían desde nuestro servidor a servicios de OpenStreetMap (Photon y Nominatim), sin datos que te identifiquen. Al enviar, guardamos el identificador del lugar junto con tu reporte. <a routerLink="/privacidad">Conoce cómo usamos la información.</a></p></div></aside>
   <div class="reference-cards">
     <article><span class="reference-label"><app-icon name="shield" /> Referencia residencial</span><h2>Espacios para descansar</h2><p>60 dBA de día · 50 dBA de noche.</p><p class="reference-description">Valores referenciales para entender el entorno acústico de las zonas residenciales.</p></article>
     <article><span class="reference-label"><app-icon name="building" /> Referencia comercial</span><h2>Centro y mercados</h2><p>70 dBA durante el día.</p><p class="reference-description">Un punto de referencia para conversar sobre el ruido en las zonas comerciales.</p></article>

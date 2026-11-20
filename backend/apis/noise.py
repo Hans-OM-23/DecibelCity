@@ -4,7 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from apis.auth import require_active_user, validate_origin
 from schemas.maps import PlaceSuggestion, PublicMapsConfig
+from schemas.users import AuthErrorResponse
 from schemas.noise import HealthResponse, Hotspot, NoiseReport, NoiseReportCreate, NoiseSourceOption
 from services.noise_service import NoiseService
 from services.osm_places import PlaceVerificationError
@@ -54,7 +56,9 @@ def list_noise_sources(service: NoiseServiceDependency) -> tuple[NoiseSourceOpti
     return service.list_sources()
 
 
-@router.post("/reports", response_model=NoiseReport, status_code=status.HTTP_201_CREATED)
+@router.post("/reports", response_model=NoiseReport, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(validate_origin), Depends(require_active_user)],
+             responses={401: {"model": AuthErrorResponse}, 403: {"model": AuthErrorResponse}})
 def create_report(payload: NoiseReportCreate, service: NoiseServiceDependency) -> NoiseReport:
     try:
         return service.create_report(payload)

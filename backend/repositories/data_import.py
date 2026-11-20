@@ -1,11 +1,15 @@
-"""Importación atómica de una exportación v2; no abre ni modifica bases antiguas."""
+"""Importación atómica de una exportación v2; no abre ni modifica bases antiguas.
+
+La exportación v2 contiene solo las diez tablas de catálogos, reportes y puntos. Las cuentas
+de usuario (v5) no se importan: la base de destino debe tener también `usuarios` vacía.
+"""
 
 import math
 from datetime import datetime
 
 from psycopg import sql
 
-from repositories.migrations import TABLE_ORDER, TABLES, DatabaseMigrationError, prepare_schema
+from repositories.migrations import ACCOUNT_TABLES, SNAPSHOT_TABLES, TABLE_ORDER, DatabaseMigrationError, prepare_schema
 from repositories.noise_repository import NoiseRepository
 
 
@@ -32,11 +36,11 @@ def normalize(value, column: str, data_type: str):
 
 def import_snapshot(repository: NoiseRepository, snapshot: dict) -> dict[str, int]:
     if (set(snapshot) != {"format", "tables"} or snapshot["format"] != "decibelcity-v2"
-            or not isinstance(snapshot["tables"], dict) or set(snapshot["tables"]) != TABLES):
+            or not isinstance(snapshot["tables"], dict) or set(snapshot["tables"]) != SNAPSHOT_TABLES):
         raise ValueError("Formato de exportación no reconocido; se requieren las diez tablas v2.")
     with repository._connection() as connection:
         prepare_schema(connection)
-        for table in TABLE_ORDER:
+        for table in (*TABLE_ORDER, *ACCOUNT_TABLES):
             if connection.execute(sql.SQL("SELECT 1 FROM {} LIMIT 1").format(sql.Identifier(table))).fetchone():
                 raise DatabaseMigrationError("La importación requiere tablas vacías; no se sobrescribirán datos.")
         counts = {}

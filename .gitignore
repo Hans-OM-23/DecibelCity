@@ -5,6 +5,7 @@
 !/frontend/
 !/backend/
 !/Database/
+!/testsprite_tests/
 
 # Dependencias, compilaciones y cachés
 **/node_modules/
@@ -37,3 +38,5 @@ Thumbs.db
 **/.idea/
 **/.agents/
 **/AGENTS.md
+testsprite_tests/tmp/
+testsprite_tests/tmp/config.json

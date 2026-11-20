@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, ElementRef, inject, input, output, signal, viewChild, ViewEncapsulation } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, ElementRef, inject, input, linkedSignal, output, signal, viewChild, ViewEncapsulation } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, debounceTime, distinctUntilChanged, map, of, Subject, switchMap } from 'rxjs';
 import { MapPoint, PlaceSuggestion, SelectedPlace } from '../../../core/interfaces/maps.interface';
@@ -25,6 +25,7 @@ const MIN_QUERY_LENGTH = 3;
 })
 export class LocationPickerComponent {
   readonly disabled = input(false);
+  readonly selectedPlace = input<SelectedPlace | null>(null);
   readonly locationSelected = output<SelectedPlace | null>();
   readonly query = signal('');
   readonly state = signal<SearchState>('idle');
@@ -32,7 +33,7 @@ export class LocationPickerComponent {
   readonly suggestions = signal<PlaceSuggestion[]>([]);
   readonly activeIndex = signal(-1);
   readonly open = signal(false);
-  readonly selected = signal<SelectedPlace | null>(null);
+  readonly selected = linkedSignal<SelectedPlace | null>(() => this.selectedPlace());
   readonly expanded = computed(() => this.open() && this.suggestions().length > 0);
   readonly activeId = computed(() => this.expanded() && this.activeIndex() >= 0 ? `location-option-${this.activeIndex()}` : null);
   readonly mapPoints = computed<readonly MapPoint[]>(() => {
@@ -52,6 +53,15 @@ export class LocationPickerComponent {
   private readonly queries = new Subject<string>();
 
   constructor() {
+    effect(() => {
+      const place = this.selected();
+      if (place) {
+        this.open.set(false);
+        this.suggestions.set([]);
+        this.state.set('idle');
+      }
+    });
+
     this.queries.pipe(
       map(value => value.trim().replace(/\s+/g, ' ')),
       debounceTime(400),

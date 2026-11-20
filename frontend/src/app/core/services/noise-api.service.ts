@@ -19,6 +19,6 @@ export class NoiseApiService {
   }
 
   createReport(payload: NoiseReportCreate): Observable<NoiseReport> {
-    return this.http.post<NoiseReport>(`${this.baseUrl}/reports`, payload).pipe(timeout(20000));
+    return this.http.post<NoiseReport>(`${this.baseUrl}/reports`, payload, { withCredentials: true }).pipe(timeout(20000));
   }
 }
